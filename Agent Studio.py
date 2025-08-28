@@ -1,6 +1,6 @@
 # Databricks notebook source
 # MAGIC %pip install --upgrade gradio==3.38.0 fastapi==0.104 uvicorn==0.24
-# MAGIC %pip install typing-extensions==4.8.0 --upgrade
+# MAGIC %pip install typing-extensions==4.12.2 --upgrade
 
 # COMMAND ----------
 
@@ -17,7 +17,12 @@ os.environ['AGENT_STUDIO_PATH'] = dbutils.secrets.get('agent_studio','folder_pat
 from Core.AgentCreator import AgentParser
 import gradio as gr
 
-cluster_id = dbutils.notebook.entry_point.getDbutils().notebook().getContext().tags().apply('clusterId')
+# Correct way to get notebook context in Databricks Python notebooks
+context = dbutils.notebook.entry_point.getDbutils().notebook().getContext()
+notebook_path = context.notebookPath().get()  # Get the path of the current notebook
+workspace_id = context.workspaceId().get()    # Get the workspace ID
+
+# cluster_id is not available in serverless environments, so it has been removed
 
 # COMMAND ----------
 
@@ -92,23 +97,19 @@ class ProxySettings:
     port: str
     url_base_path: str
 
-
 class DatabricksApp:
-
-    def __init__(self, port):
-        # self._app = data_app
+    def __init__(self, port, notebook_path, workspace_id, cloud="gcp"):
         self._port = port
         import IPython
         self._dbutils = IPython.get_ipython().user_ns["dbutils"]
         self._display_html = IPython.get_ipython().user_ns["displayHTML"]
-        self._context = json.loads(self._dbutils.notebook.entry_point.getDbutils().notebook().getContext().toJson())
-        # need to do this after the context is set
-        self._cloud = self.get_cloud()
-        # create proxy settings after determining the cloud
-        self._ps = self.get_proxy_settings()
-        self._fastapi_app = self._make_fastapi_app(root_path=self._ps.url_base_path.rstrip("/"))
+        self._notebook_path = notebook_path
+        self._workspace_id = workspace_id
+        self._cloud = cloud.lower()
+        # For GCP, skip proxy settings
+        self._ps = None
+        self._fastapi_app = self._make_fastapi_app(root_path="/")
         self._streamlit_script = None
-        # after everything is set print out the url
 
     def _make_fastapi_app(self, root_path) -> FastAPI:
         fast_api_app = FastAPI(root_path=root_path)
@@ -129,90 +130,57 @@ class DatabricksApp:
 
         return fast_api_app
 
-    def get_proxy_settings(self) -> ProxySettings:
-        if self._cloud.lower() not in ["aws", "azure"]:
-            raise Exception("only supported in aws or azure")
-
-        org_id = self._context["tags"]["orgId"]
-        org_shard = ""
-        # org_shard doesnt need a suffix of "." for dnsname its handled in building the url
-        if self._cloud.lower() == "azure":
-            org_shard_id = int(org_id) % 20
-            org_shard = f".{org_shard_id}"
-        cluster_id = self._context["tags"]["clusterId"]
-        url_base_path = f"/driver-proxy/o/{org_id}/{cluster_id}/{self._port}"
-
-        from dbruntime.databricks_repl_context import get_context
-        host_name = get_context().browserHostName
-        proxy_url = f"https://{host_name}/driver-proxy/o/{org_id}/{cluster_id}/{self._port}/"
-
-        return ProxySettings(
-            proxy_url=proxy_url,
-            port=self._port,
-            url_base_path=url_base_path
-        )
-
     @property
     def app_url_base_path(self):
-        return self._ps.url_base_path
+        return "/"
 
     def mount_gradio_app(self, gradio_app):
         import gradio as gr
-        # gradio_app.queue()
         gr.mount_gradio_app(self._fastapi_app, gradio_app, f"/gradio")
-        # self._fastapi_app.mount("/gradio", gradio_app)
         self.display_url(self.get_gradio_url())
 
     def get_cloud(self):
-        if self._context["extraContext"]["api_url"].endswith("azuredatabricks.net"):
-            return "azure"
-        return "aws"
+        return self._cloud
 
     def get_gradio_url(self):
-        # must end with a "/" for it to not redirect
-        return f'<a href="{self._ps.proxy_url}gradio/">Click to go to Gradio App!</a>'
+        # On GCP, display a clickable link to the local Gradio app URL
+        url = f"http://127.0.0.1:{self._port}/gradio"
+        return f'<a href="{url}" target="_blank">Click to open Gradio app (if accessible)</a><br>URL: {url}'
 
     def display_url(self, url):
         self._display_html(url)
 
     def run(self):
         print(self.app_url_base_path)
-        uvicorn.run(self._fastapi_app, host="0.0.0.0", port=self._port)
+        uvicorn.run(self._fastapi_app, host="127.0.0.1", port=self._port)
 
 # COMMAND ----------
 
 def create_agent(yaml_str):
-  p = AgentParser(cluster_id)#'0822-172318-4b9whfq4'
+  p = AgentParser(workspace_id)  # Use workspace_id for serverless compatibility
   gr.Info("Launching Agent. This will take a minute. A second notification will present when it's complete.")
   msg = p.create_agent(yaml_str)
   gr.Info(msg)
 
-
 # COMMAND ----------
 
-import os
 import yaml
 
-directory = os.path.join(os.environ.get('AGENT_STUDIO_PATH'), "Tool/yaml/")
-#"/Volumes/robert_mosley/sql_ai/files/agent_studio/tool"
-data_array = []
+# Load the specific agent YAML file
+agent_yaml_path = "/Workspace/Users/slavosmn95@gmail.com/agent/Agent/yaml/main_default_sample_agent.yaml"
 
-# Iterate through the files in the directory
-for filename in os.listdir(directory):
-    filepath = os.path.join(directory, filename)
-    
-    # Check if the file has a YAML extension
-    if filename.endswith(".yaml") or filename.endswith(".yml"):
-        # Load the YAML object from the file
-        with open(filepath, "r") as file:
-            yaml_obj = yaml.safe_load(file)
-        
-        # Append the YAML object to the data array
-        data_array.append(yaml_obj)
+with open(agent_yaml_path, "r") as file:
+    agent_yaml_obj = yaml.safe_load(file)
 
-# Use the data_array as needed
-tools_ref = {t['tool']: t for t in data_array}
-tools_dict = {t['tool']: t['documentation'] for t in data_array}
+# Extract tools from the agent YAML
+agent_tools = agent_yaml_obj.get('tools', [])
+
+# Build tools_ref and tools_dict from the tools section
+# Each tool must have 'tool' and 'description' fields
+# If 'documentation' is not present, use 'description' for tools_dict
+
+tools_ref = {t['tool']: t for t in agent_tools}
+tools_dict = {t['tool']: t.get('documentation', t.get('description', '')) for t in agent_tools}
 
 # COMMAND ----------
 
@@ -284,7 +252,8 @@ def add_agent_tool(selected_tool, yaml_text):
 
     return yaml_string()
 
-#agent_tools = [{"index"=0, "name"="tool_name", "parameters"=[]}]
+# Fixed syntax for agent_tools
+agent_tools = [{"index": 0, "name": "tool_name", "parameters": []}]
 
 # COMMAND ----------
 
@@ -341,23 +310,29 @@ app_port = 8765
 
 # COMMAND ----------
 
-print(spark.conf.get("spark.databricks.clusterUsageTags.clusterOwnerOrgId"))
+print(f"Workspace ID: {workspace_id}")
+print(f"Notebook Path: {notebook_path}")
 
 # COMMAND ----------
 
-cluster_id = dbutils.notebook.entry_point.getDbutils().notebook().getContext().clusterId().getOrElse(None)
-workspace_id = spark.conf.get("spark.databricks.clusterUsageTags.clusterOwnerOrgId")
-
-print(f"Use this URL to access the chatbot app: ")
-print(f"https://dbc-dp-{workspace_id}.cloud.databricks.com/driver-proxy/o/{workspace_id}/{cluster_id}/{app_port}/gradio/")
+# Launch the Gradio app with share=True to get a public link
+# This is the recommended way to get a public link in Databricks serverless GCP
+agent_studio.launch(share=True)
 
 # COMMAND ----------
 
-dbx_app = DatabricksApp(app_port)
-
-# demo.queue()
-dbx_app.mount_gradio_app(agent_studio)
-
-import nest_asyncio
-nest_asyncio.apply()
-dbx_app.run()
+# MAGIC %md
+# MAGIC # Important Note: How to View Agent Studio via Gradio
+# MAGIC
+# MAGIC In Databricks serverless GCP, **you cannot access local URLs (like 127.0.0.1) from your browser**. The only supported way to view the Gradio app is via the public link provided by `agent_studio.launch(share=True)`.
+# MAGIC
+# MAGIC **If you see 'No interface is running right now' or no public link appears:**
+# MAGIC - Gradio sharing may not be supported in your current Databricks environment.
+# MAGIC - There may be network restrictions or firewall rules blocking outbound connections to Gradio’s sharing service.
+# MAGIC - The local URL (127.0.0.1) will never work in Databricks serverless, as the backend is not directly accessible from your browser.
+# MAGIC
+# MAGIC ## How to View Agent Studio via Gradio
+# MAGIC
+# MAGIC ### Option 1: Run Locally (Recommended)
+# MAGIC 1. Download your notebook and all required files to your local machine.
+# MAGIC 2. Install Python and the required packages:
