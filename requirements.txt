@@ -1,0 +1,16 @@
+# Core dependencies
+gradio==3.38.0
+fastapi==0.104
+uvicorn==0.24
+typing-extensions==4.8.0
+
+# MLflow and Databricks
+mlflow[databricks]
+
+# LangChain
+langchain-openai
+langchain-community
+
+# Other dependencies
+requests
+pyyaml

@@ -221,11 +221,9 @@ def create_endpoint(endpoint_name, model, config = {}):
                 "scale_to_zero_enabled": config.get('scale_to_zero_enabled', "True"),
                 "environment_vars": config.get('environment_vars', {})
           }],
+        # Disable auto-capture by default to avoid UC table creation failures
         "auto_capture_config": {
-                "catalog_name": model_name.split('.')[0],
-                "schema_name": model_name.split('.')[1],
-                "table_name_prefix": model_name.split('.')[2],
-                "enabled": True
+                "enabled": False
           }
         },
       "tags": [

@@ -46,7 +46,7 @@ class ChatBot():
         model = config.get('model', "gpt-4-turbo-preview")
         output_table = config.get('output_table', "")
         provider = config.get('provider', 'databricks')
-        endpoint_type = config.get('endpoint-type', 'chat') #chat-basic, completions, embeddings
+        endpoint_type = config.get('endpoint-type', config.get('endpoint_type', 'chat')) #chat-basic, completions, embeddings
 
         if model == '3.5':
             model = "gpt-3.5-turbo"

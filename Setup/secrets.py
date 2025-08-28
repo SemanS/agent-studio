@@ -28,7 +28,7 @@ headers = {'Authorization': f'Bearer {databricks_token}', 'Content-Type': 'appli
 payload = {
       "scope": 'agent_studio',
       "key": "open_ai",
-      "string_value": "" #open ai key
+      "string_value": "your-openai-api-key" #open ai key
 }
       
 
@@ -47,7 +47,7 @@ headers = {'Authorization': f'Bearer {databricks_token}', 'Content-Type': 'appli
 payload = {
       "scope": 'agent_studio',
       "key": "databricks_token",
-      "string_value": ""
+      "string_value": "your-databricks-token"
 }
       
 
@@ -66,7 +66,7 @@ headers = {'Authorization': f'Bearer {databricks_token}', 'Content-Type': 'appli
 payload = {
       "scope": 'agent_studio',
       "key": "databricks_host",
-      "string_value": f"https://{workspaceUrl}"
+      "string_value": "https://your-workspace.cloud.databricks.com/"
 }
       
 
@@ -85,7 +85,7 @@ headers = {'Authorization': f'Bearer {databricks_token}', 'Content-Type': 'appli
 payload = {
       "scope": 'agent_studio',
       "key": "folder_path",
-      "string_value": "/Workspace/Repos/robert.mosley@databricks.com/agent-studio/" #folder path to agent studio
+      "string_value": "/Workspace/Repos/your-email@domain.com/agent-studio/" #folder path to agent studio
 }
       
 
